@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<module>
+	<name>zapexport</name>
+	<displayName><![CDATA[יצוא מוצרים לזאפ]]></displayName>
+	<version><![CDATA[1.1.0]]></version>
+	<description><![CDATA[יצוא מוצרים לזאפ בפורמט XML]]></description>
+	<author><![CDATA[Yaniv Mirel]]></author>
+	<tab><![CDATA[administration]]></tab>
+	<is_configurable>1</is_configurable>
+	<need_instance>0</need_instance>
+	<limited_countries></limited_countries>
+</module>
