@@ -33,7 +33,7 @@
 
     $catID = (int)Tools::getValue('catID', 0);
     if (isset($catID) && (int)$catID > 0) {
-        header("Content-Type:text/xml; charset=utf-8;");
+        header("Content-Type: application/xml");
 
         $context = Context::getContext();
 
