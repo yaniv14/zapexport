@@ -1,1 +1,2 @@
+2016-08-03  Switched to SimpleXML to prevent unicode issues
 2016-06-22	Initial commit

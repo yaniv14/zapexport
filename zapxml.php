@@ -31,18 +31,29 @@
     include(dirname(__FILE__) . '/../../init.php');
     include(dirname(__FILE__) . '/zapexport.php');
 
+    Class SimpleXMLElementExtended extends SimpleXMLElement
+    {
+        public function addChildWithCDATA($name, $value = null)
+        {
+            $new_child = $this->addChild($name);
+
+            if ($new_child !== null) {
+                $node = dom_import_simplexml($new_child);
+                $no = $node->ownerDocument;
+                $node->appendChild($no->createCDATASection($value));
+            }
+
+            return $new_child;
+        }
+    }
+
     $catID = (int)Tools::getValue('catID', 0);
     if (isset($catID) && (int)$catID > 0) {
-        header("Content-Type: application/xml");
-
         $context = Context::getContext();
 
         function getExtraFeatures($productID, $context, $product)
         {
             $features = Product::getFrontFeaturesStatic($context->language->id, (int)$productID);
-
-            $html = '';
-
             $warranty = Configuration::get('ZAPEXPORT_WARRANTY');
             $model = $product['reference'];
 
@@ -55,10 +66,10 @@
                 }
             }
 
-            $html .= '<WARRANTY><![CDATA[ ' . $warranty . ' ]]></WARRANTY>' . "\t\n";
-            $html .= '<MODEL><![CDATA[ ' . $model . ' ]]></MODEL>' . "\t\n";
-
-            return $html;
+            return array(
+                'warranty' => $warranty,
+                'model'    => $model
+            );
         }
 
         function getAttributeCombinationsById($id_product, $id_lang)
@@ -305,9 +316,11 @@
         $freeShippingPrice = Configuration::get('PS_SHIPPING_FREE_PRICE');
         $include_all_products = (int)Configuration::get('ZAPEXPORT_INCLUDE_ALL_PRODUCTS');
 
-        $xml = '<?xml version="1.0" encoding="utf-8" ?>' . "\n";
-        $xml .= '<STORE url="http://' . $_SERVER['SERVER_NAME'] . __PS_BASE_URI__ . '" date="' . date('d/m/Y') . '">' . "\n";
-        $xml .= '<PRODUCTS>' . "\n";
+
+        $sxe = new SimpleXMLElementExtended('<?xml version="1.0" encoding="UTF-8"?><STORE/>');
+        $sxe->addAttribute('url', 'http://' . $_SERVER['SERVER_NAME'] . __PS_BASE_URI__);
+        $sxe->addAttribute('date', date('d/m/Y'));
+        $x_products = $sxe->addChild('PRODUCTS');
         foreach ($catProducts as $product) {
             if ((in_array($product['id_product'], $zapProducts) || (int)$include_all_products == 1) && (int)$product['quantity'] > 0 && (int)$product['available_for_order'] == 1) {
                 if ($product['id_product_attribute'] != 0) {
@@ -339,20 +352,21 @@
                         }
                         $description = (Tools::strlen($desc) > 255) ? mb_substr($desc, 0, 255, 'utf-8') : $desc;
                         $name = htmlspecialchars($product['name'] . ' - ' . $pro_attr['attribute_name']);
-                        $xml .= '<PRODUCT>' . "\n";
-                        $xml .= '<PRODUCT_URL><![CDATA[ ' . getProductLink($product, null, null, $product_attribute_id, false) . ' ]]></PRODUCT_URL>' . "\t\n";
-                        $xml .= '<PRODUCT_NAME><![CDATA[ ' . $name . ' ]]></PRODUCT_NAME>' . "\t\n";
-                        $xml .= '<DETAILS><![CDATA[ ' . $description . ' ]]></DETAILS>' . "\t\n";
-                        $xml .= '<CATALOG_NUMBER><![CDATA[ ' . $reference . ' ]]></CATALOG_NUMBER>' . "\t\n";
-                        $xml .= '<CURRENCY><![CDATA[ ' . Configuration::get('ZAPEXPORT_CURRENCY') . ' ]]></CURRENCY>' . "\t\n";
-                        $xml .= '<PRICE><![CDATA[ ' . $price . ' ]]></PRICE>' . "\t\n";
-                        $xml .= '<SHIPMENT_COST><![CDATA[ ' . $shipment_cost . ' ]]></SHIPMENT_COST>' . "\t\n";
-                        $xml .= '<DELIVERY_TIME><![CDATA[ ' . (Configuration::get('ZAPEXPORT_DELIVERY_TIME') ? Configuration::get('ZAPEXPORT_DELIVERY_TIME') : $carrier->delay[(int)$context->language->id]) . ' ]]></DELIVERY_TIME>' . "\t\n";;
-                        $xml .= '<MANUFACTURER><![CDATA[ ' . htmlspecialchars(Manufacturer::getNameById((int)$product['id_manufacturer']), null, 'UTF-8', false) . ' ]]></MANUFACTURER>' . "\t\n";;
-                        $xml .= getExtraFeatures($product['id_product'], $context, $product);
-                        $xml .= '<IMAGE><![CDATA[ ' . getImageLink($product['link_rewrite'], $imageID, Configuration::get('ZAPEXPORT_IMAGE_TYPE')) . ' ]]></IMAGE>' . "\t\n";
-                        $xml .= '<TAX></TAX>';
-                        $xml .= '</PRODUCT>' . "\n";
+                        $x_product = $x_products->addChild('PRODUCT');
+                        $x_product->addChildWithCDATA('PRODUCT_URL', getProductLink($product, null, null, $product_attribute_id, false));
+                        $x_product->addChild('PRODUCT_NAME', $name);
+                        $x_product->addChild('DETAILS', $description);
+                        $x_product->addChild('CATALOG_NUMBER', $reference);
+                        $x_product->addChild('CURRENCY', Configuration::get('ZAPEXPORT_CURRENCY'));
+                        $x_product->addChild('PRICE', $price);
+                        $x_product->addChild('SHIPMENT_COST', $shipment_cost);
+                        $x_product->addChild('DELIVERY_TIME', (Configuration::get('ZAPEXPORT_DELIVERY_TIME') ? Configuration::get('ZAPEXPORT_DELIVERY_TIME') : $carrier->delay[(int)$context->language->id]));
+                        $x_product->addChild('MANUFACTURER', htmlspecialchars(Manufacturer::getNameById((int)$product['id_manufacturer']), null, 'UTF-8', false));
+                        $ef = getExtraFeatures($product['id_product'], $context, $product);
+                        $x_product->addChild('WARRANTY', $ef['warranty']);
+                        $x_product->addChild('MODEL', $ef['model']);
+                        $x_product->addChildWithCDATA('IMAGE', getImageLink($product['link_rewrite'], $imageID, Configuration::get('ZAPEXPORT_IMAGE_TYPE')));
+                        $x_product->addChild('TAX', '');
                     }
                 } else {
                     $price = Product::getPriceStatic((int)$product['id_product'], true, null, 6);
@@ -374,27 +388,27 @@
                     $imageID = Image::getCover($product['id_product']);
                     $imageID = $imageID['id_image'];
                     $image = $context->link->getImageLink($product['link_rewrite'], $product['id_product'] . '-' . $imageID, Configuration::get('ZAPEXPORT_IMAGE_TYPE'));
-                    $xml .= '<PRODUCT>' . "\n";
-                    $xml .= '<PRODUCT_URL><![CDATA[ ' . $product['link'] . ' ]]></PRODUCT_URL>' . "\t\n";
-                    $xml .= '<PRODUCT_NAME><![CDATA[ ' . $name . ' ]]></PRODUCT_NAME>' . "\t\n";
-                    $xml .= '<DETAILS><![CDATA[ ' . $description . ' ]]></DETAILS>' . "\t\n";
-                    $xml .= '<CATALOG_NUMBER><![CDATA[ ' . $product['reference'] . ' ]]></CATALOG_NUMBER>' . "\t\n";
-                    $xml .= '<CURRENCY><![CDATA[ ' . Configuration::get('ZAPEXPORT_CURRENCY') . ' ]]></CURRENCY>' . "\t\n";
-                    $xml .= '<PRICE><![CDATA[ ' . $price . ' ]]></PRICE>' . "\t\n";
-                    $xml .= '<SHIPMENT_COST><![CDATA[ ' . $shipment_cost . ' ]]></SHIPMENT_COST>' . "\t\n";
-                    $xml .= '<DELIVERY_TIME><![CDATA[ ' . (Configuration::get('ZAPEXPORT_DELIVERY_TIME') ? Configuration::get('ZAPEXPORT_DELIVERY_TIME') : $carrier->delay[(int)$context->language->id]) . ' ]]></DELIVERY_TIME>' . "\t\n";;
-                    $xml .= '<MANUFACTURER><![CDATA[ ' . htmlspecialchars(Manufacturer::getNameById((int)$product['id_manufacturer']), null, 'UTF-8', false) . ' ]]></MANUFACTURER>' . "\t\n";;
-                    $xml .= getExtraFeatures($product['id_product'], $context, $product);
-                    $xml .= '<IMAGE><![CDATA[ ' . $image . ' ]]></IMAGE>' . "\t\n";
-                    $xml .= '<TAX></TAX>';
-                    $xml .= '</PRODUCT>' . "\n";
+                    $x_product = $x_products->addChild('PRODUCT');
+                    $x_product->addChildWithCDATA('PRODUCT_URL', $product['link']);
+                    $x_product->addChild('PRODUCT_NAME', $name);
+                    $x_product->addChild('DETAILS', $description);
+                    $x_product->addChild('CATALOG_NUMBER', $product['reference']);
+                    $x_product->addChild('CURRENCY', Configuration::get('ZAPEXPORT_CURRENCY'));
+                    $x_product->addChild('PRICE', $price);
+                    $x_product->addChild('SHIPMENT_COST', $shipment_cost);
+                    $x_product->addChild('DELIVERY_TIME', (Configuration::get('ZAPEXPORT_DELIVERY_TIME') ? Configuration::get('ZAPEXPORT_DELIVERY_TIME') : $carrier->delay[(int)$context->language->id]));
+                    $x_product->addChild('MANUFACTURER', htmlspecialchars(Manufacturer::getNameById((int)$product['id_manufacturer']), null, 'UTF-8', false));
+                    $ef = getExtraFeatures($product['id_product'], $context, $product);
+                    $x_product->addChild('WARRANTY', $ef['warranty']);
+                    $x_product->addChild('MODEL', $ef['model']);
+                    $x_product->addChildWithCDATA('IMAGE', $image);
+                    $x_product->addChild('TAX', '');
                 }
             }
         }
 
-        $xml .= '</PRODUCTS>' . "\n";
-        $xml .= '</STORE>' . "\n";
-        echo $xml;
+        header('Content-Type: application/xml');
+        echo $sxe->asXML();
     } else {
         $path = _MODULE_DIR_ . 'zapexport/zapxml.php';
         $zapCategories = explode(',', Configuration::get('ZAPEXPORT_CATEGORIES'));

@@ -36,7 +36,7 @@
         {
             $this->name = 'zapexport';
             $this->tab = 'administration';
-            $this->version = '1.1.1';
+            $this->version = '1.2.0';
             $this->author = 'Yaniv Mirel';
             $this->need_instance = 0;
             $this->bootstrap = true;
